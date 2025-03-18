@@ -1,0 +1,107 @@
+#Preserve the full name instead of a short hostname
+$PreserveFQDN on
+
+#RFC3164 time Compare
+$ActionFileDefaultTemplate RSYSLOG_TraditionalFileFormat
+
+# Load the UDP module for receiving syslog messages
+module(load="imudp")
+module(load="imtcp")
+
+# Listen for syslog messages over UDP on port 514
+input(type="imudp" port="{{ PUBLISHED_PORT_UDP|default('514') }}") 
+input(type="imtcp" port="{{ PUBLISHED_PORT_TCP|default('514') }}") 
+
+# Define the syslog message format with RFC3339 timestamp
+template(name="syslog-template" type="string" string="%timegenerated:::date-rfc3339% %fromhost% %programname%[%syslogfacility%]:[%syslogseverity-text:::UPPERCASE%] %msg%\n")
+
+# Define a dynamic file path for log storage (logs are grouped by hostname and program name)
+template(name="DynFile" type="string" string="/var/log/rsyslog/docker/%fromhost%/containers/%programname%.log")
+
+# Write logs to dynamic files using the defined templates
+{% if SAVE_TO_FILE == "true" %}
+action(
+    type="omfile"
+    dynaFile="DynFile"
+    template="syslog-template"
+)  
+{% endif %}
+
+######################################################################
+# Elasticsearch (if ENABLE_ELK == "true")
+######################################################################
+{% if ENABLE_ELK == "true" %}
+module(load="omelasticsearch")
+
+template(name="elastic-json" type="list" option.json="on") {
+    constant(value="{")
+    constant(value="\"@timestamp\":\"")     property(name="timegenerated" dateFormat="rfc3339")
+    constant(value="\",\"host\":\"")        property(name="$!hostname")
+    constant(value="\",\"host_ip\":\"")     property(name="fromhost-ip")
+    constant(value="\",\"severity-num\":")  property(name="syslogseverity")
+    constant(value=",\"facility-num\":")    property(name="syslogfacility")
+    constant(value=",\"severity\":\"")      property(name="syslogseverity-text")
+    constant(value="\",\"facility\":\"")    property(name="syslogfacility-text")
+    constant(value="\",\"programname\":\"") property(name="programname")
+    constant(value="\",\"syslogtag\":\"")   property(name="syslogtag")
+    constant(value="\",\"pid\":\"")         property(name="procid")
+    constant(value="\",\"message\":\"")     property(name="msg")
+    constant(value="\"}")
+}
+
+template(name="rsyslog-index" type="string" string="rsyslog-%$YEAR%.%$MONTH%.%$DAY%")
+
+action(
+    type="omelasticsearch"
+    server="{{ ELK_ADDRESS }}"
+    searchIndex="rsyslog-index"
+    dynSearchIndex="on"
+    bulkmode="on"
+    esVersion.major="8"
+    template="elastic-json"
+    uid="{{ ELK_USER }}"
+    pwd="{{ ELK_PASSWORD }}"
+    errorfile="/var/log/rsyslog/omelasticsearch.log"
+    writeoperation="create"
+)
+{% endif %}
+
+######################################################################
+# Loki (if ENABLE_LOKI == "true")
+######################################################################
+{% if ENABLE_LOKI == "true" %}
+
+{% if HOST_NAME is defined and HOST_NAME != "" %}
+set $!host_name = '{{ HOST_NAME }}';
+{% else %}
+set $!host_name = 'rsyslog-server';
+{% endif %}
+
+module(load="omhttp")
+
+template(name="loki-json" type="string" string="{\"streams\":[{
+    \"stream\": {
+        \"host\": \"%$!host_name%\",
+        \"container_ip\": \"%fromhost%\",
+        \"facility\": \"%syslogfacility-text%\",
+        \"priority\": \"%syslogpriority-text%\",
+        \"program\": \"%programname%\",
+        \"pid\": \"%procid%\",
+        \"severity\": \"%syslogseverity-text%\"
+    },
+    \"values\": [[ \"%timegenerated:::date-unixtimestamp%000000000\", \"%msg:::json%\" ]]
+}]} \n")
+
+action(
+    name="loki"
+    type="omhttp"
+    useHttps="{{ LOKI_HTTPS|default('off') }}"
+    server="{{ LOKI_ADDRESS }}"
+    serverport="{{ LOKI_PORT|default('3100') }}"
+    checkpath="ready"
+    httpcontenttype="application/json"
+    restpath="loki/api/v1/push"
+    template="loki-json"
+    errorfile="/var/log/rsyslog/loki.log"
+)
+{% endif %}
