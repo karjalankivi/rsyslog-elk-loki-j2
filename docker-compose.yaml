@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  rsyslog:
+   # If you want Docker Compose to automatically build the image from the Dockerfile,
+   # leave the "build: ." line uncommented.
+   # If you prefer to build the image manually first (e.g., using "docker build -t rsyslog:latest .")
+   # and then run the container with docker-compose, comment out the line below.
+    build: .
+    image: rsyslog:latest
+    container_name: rsyslog
+    restart: always
+    volumes:
+      - log-volume:/var/log/rsyslog/ # Path for storing logs (when SAVE_TO_FILE=true)
+    ports:
+      - "514:514/udp"
+      - "514:514/tcp"
+    environment:
+      SAVE_TO_FILE: "true"
+      ENABLE_ELK: "true"
+      ELK_ADDRESS: "http://elasticsearch:9200" # Default is http://elasticsearch:9200 if not provided
+      ELK_USER: "your_elk_user"         # Default is empty if not provided
+      ELK_PASSWORD: "your_elk_password" # Default is empty if not provided
+      ENABLE_LOKI: "true"
+      HOST_NAME: "rsyslog-server"       # Hostname for sending logs to Loki (default is "rsyslog-server")
+      LOKI_ADDRESS: "loki"
+      LOKI_PORT: "3100"
+      LOKI_HTTPS: "false"               # To enable HTTPS, set to "true" or "on"
+      PUBLISHED_PORT_UDP: "514"
+      PUBLISHED_PORT_TCP: "514"         # Ports for receiving logs (default is 514 for imudp and imtcp)
+
+volumes:
+  log-volume:
