@@ -53,14 +53,14 @@ template(name="rsyslog-index" type="string" string="rsyslog-%$YEAR%.%$MONTH%.%$D
 
 action(
     type="omelasticsearch"
-    server="{{ ELK_ADDRESS }}"
+    server="{{ ELK_ADDRESS|default('http://elasticsearch:9200') }}"
     searchIndex="rsyslog-index"
     dynSearchIndex="on"
     bulkmode="on"
     esVersion.major="8"
     template="elastic-json"
-    uid="{{ ELK_USER }}"
-    pwd="{{ ELK_PASSWORD }}"
+    uid="{{ ELK_USER|default('') }}"
+    pwd="{{ ELK_PASSWORD|default('') }}"
     errorfile="/var/log/rsyslog/omelasticsearch.log"
     writeoperation="create"
 )
@@ -95,8 +95,8 @@ template(name="loki-json" type="string" string="{\"streams\":[{
 action(
     name="loki"
     type="omhttp"
-    useHttps="{{ LOKI_HTTPS|default('off') }}"
-    server="{{ LOKI_ADDRESS }}"
+    useHttps="{{ 'on' if LOKI_HTTPS|lower in ['true', 'on'] else 'off' }}"
+    server="{{ LOKI_ADDRESS|default('loki') }}"
     serverport="{{ LOKI_PORT|default('3100') }}"
     checkpath="ready"
     httpcontenttype="application/json"
